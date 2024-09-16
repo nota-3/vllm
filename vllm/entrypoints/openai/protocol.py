@@ -268,12 +268,22 @@ class ChatCompletionRequest(OpenAIBaseModel):
             "If specified, will override the default whitespace pattern "
             "for guided json decoding."))
 
+    custom_logits_processors: Optional[List[str]] = Field(
+        default=None,
+        description=(
+            "If specified, will override the default logits processors "
+            "of the server for this specific request. If set, must be a list "
+            "of strings where each string is colon separated list of the "
+            "file path, the logits processor class or function name, and its "
+            "arguments.  For example, 'path/to/file.py:MyLogitsProcessor:arg1,arg2'"))
+
     # doc: end-chat-completion-extra-params
 
     def to_sampling_params(
             self, tokenizer: AnyTokenizer,
             guided_decode_logits_processor: Optional[LogitsProcessor],
-            default_max_tokens: int) -> SamplingParams:
+            default_max_tokens: int,
+            prompt: str) -> SamplingParams:
         max_tokens = self.max_tokens
         if max_tokens is None:
             max_tokens = default_max_tokens
@@ -287,6 +297,8 @@ class ChatCompletionRequest(OpenAIBaseModel):
             logit_bias=self.logit_bias,
             allowed_token_ids=None,
             tokenizer=tokenizer,
+            prompt=prompt,
+            custom_logits_processors=self.custom_logits_processors,
         )
         if guided_decode_logits_processor:
             logits_processors.append(guided_decode_logits_processor)
@@ -512,6 +524,15 @@ class CompletionRequest(OpenAIBaseModel):
             "If specified, will override the default whitespace pattern "
             "for guided json decoding."))
 
+    custom_logits_processors: Optional[List[str]] = Field(
+        default=None,
+        description=(
+            "If specified, will override the default logits processors "
+            "of the server for this specific request. If set, must be a list "
+            "of strings where each string is colon separated list of the "
+            "file path, the logits processor class or function name, and its "
+            "arguments.  For example, 'path/to/file.py:MyLogitsProcessor:arg1,arg2'"))
+
     # doc: end-completion-extra-params
 
     def to_sampling_params(
@@ -532,6 +553,8 @@ class CompletionRequest(OpenAIBaseModel):
             logit_bias=self.logit_bias,
             allowed_token_ids=self.allowed_token_ids,
             tokenizer=tokenizer,
+            prompt=self.prompt,
+            custom_logits_processors=self.custom_logits_processors
         )
         if guided_decode_logits_processor:
             logits_processors.append(guided_decode_logits_processor)
