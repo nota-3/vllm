@@ -1,13 +1,14 @@
 from functools import lru_cache, partial
-from typing import Dict, FrozenSet, Iterable, List, Optional, Union
+from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Union
+
+import importlib
+import os
+import sys
 
 import torch
 
 import inspect
-import importlib.util
-from vllm.transformers_utils.tokenizer import AnyTokenizer
-
-from vllm.sampling_params import LogitsProcessor
+import importlib.utilfrom vllm.sampling_params import LogitsProcessor
 from vllm.transformers_utils.tokenizer import AnyTokenizer
 
 
@@ -59,7 +60,7 @@ def get_logits_processors(
     allowed_token_ids: Optional[List[int]],
     tokenizer: AnyTokenizer,
     prompt: Optional[str],
-    custom_logits_processors: Optional[List[str]] = None,
+    custom_logits_processors: Optional[Dict[str,List[Any]]] = None,
 ) -> List[LogitsProcessor]:
     logits_processors: List[LogitsProcessor] = []
     if logit_bias:
@@ -90,41 +91,78 @@ def get_logits_processors(
                 frozenset(allowed_token_ids), len(tokenizer)))
 
     if custom_logits_processors:
-        for custom_logits_processor in custom_logits_processors:
-            file_path, name, arguments = custom_logits_processor.split(":")
+        for custom_logits_processor, arguments in custom_logits_processors.items():
             logits_processors.append(
                 _load_logits_processor_from_disk(
-                    tokenizer, prompt, file_path, name, arguments
+                    tokenizer, prompt, custom_logits_processor, arguments
                 )
             )
-
 
     return logits_processors
 
 
-def _load_logits_processor_from_disk(
-    tokenizer, prompt, file_path, name, arguments=None
-):
-    """Given a file path, load the logits processor from disk."""
+def _logits_processor_wrapper(name, tokenizer_path, prompt, *args, **kwargs):
+    """This function is used to dynamically load a logits processor from disk
+    based on the name provided. The name is expected to be a string that
+    matches the name of the logits processor class in the custom_logits_processors
+    directory. The arguments are expected to be a list of strings that will be
+    passed to the logits processor class as arguments. The tokenizer_path is
+    the path to the tokenizer used to encode the arguments. The prompt is
+    the prompt used to generate the logits.
 
-    spec = importlib.util.spec_from_file_location("name", file_path)
+    Args:
+        name (str): The name of the logits processor class.
+        tokenizer_path (str): The path to the tokenizer used to encode the arguments.
+        prompt (str): The prompt used to generate the logits.
+        args (list): The arguments to pass to the logits processor class.
+        kwargs (dict): Additional keyword arguments to pass to the logits processor class.
 
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    Returns:
+        logits_processor: The logits processor class.
+    """
+
+    LOGITS_PROCESSORS_DIR = os.environ.get("LOGITS_PROCESSORS_DIR")
+    sys.path.insert(0, LOGITS_PROCESSORS_DIR)
+
+    module = importlib.import_module(LOGITS_PROCESSORS_DIR.rsplit("/", 1)[-1])
     logits_processor = getattr(module, name)
-    kwargs = {}
-    if "tokenizer" in inspect.signature(logits_processor).parameters:
-        kwargs["tokenizer"] = tokenizer
+    kwargs.update({"arguments": args[0]})  # pass the arguments as a keyword arg
+
+    if "tokenizer_path" in inspect.signature(logits_processor).parameters:
+        kwargs["tokenizer_path"] = tokenizer_path
 
     if "prompt" in inspect.signature(logits_processor).parameters:
         kwargs["prompt"] = prompt
 
-    if "arguments" in inspect.signature(logits_processor).parameters:
-        kwargs["arguments"] = arguments
+    processor = logits_processor(**kwargs)
 
-    # if it's a class, initialize it with kwargs,
-    # otherwise, return a partial function with kwargs
-    if inspect.isclass(logits_processor):
-        return logits_processor(**kwargs)
-    else:
-        return partial(logits_processor, **kwargs)
+    return processor
+
+
+def _process_logits(token_ids, logits, name, tokenizer_path, prompt, arguments):
+    """This function is used to process logits using a custom logits processor
+    loaded from disk.
+
+    Args:
+        token_ids (list): The token ids.
+        logits (torch.Tensor): The logits.
+        name (str): The name of the logits processor class.
+        tokenizer_path (str): The path to the tokenizer used to encode the arguments.
+        prompt (str): The prompt used to generate the logits.
+        arguments (str): The arguments to pass to the logits processor class.
+
+    Returns:
+        torch.Tensor: The processed logits.
+    """
+    processor = _logits_processor_wrapper(name, tokenizer_path, prompt, arguments)
+    return processor(token_ids, logits)
+
+
+def _load_logits_processor_from_disk(tokenizer, prompt, name, arguments=None):
+    return partial(
+        _process_logits,
+        name=name,
+        tokenizer_path=tokenizer.name_or_path,
+        prompt=prompt,
+        arguments=arguments,
+    )

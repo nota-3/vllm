@@ -294,15 +294,17 @@ class ChatCompletionRequest(OpenAIBaseModel):
             "not set it, a random_uuid will be generated. This id is used "
             "through out the inference process and return in response."))
 
-    custom_logits_processors: Optional[List[str]] = Field(
+    custom_logits_processors: Optional[Dict[str, List[Any]]] = Field(
         default=None,
         description=(
-            "If specified, will override the default logits processors "
-            "of the server for this specific request. If set, must be a list "
-            "of strings where each string is colon separated list of the "
-            "file path, the logits processor class or function name, and its "
-            "arguments.  For example, 'path/to/file.py:MyLogitsProcessor:arg1,arg2'"))
-
+            "If specified, will add new logits processors "
+            "to the server for this specific request. If set, must be a dictionary "
+            "where each key is the logits processor class name and its value is a list "
+            "of arguments to pass to the class constructor. The classes are expected to "
+            "be in the directory specified by the LOGITS_PROCESSORS_DIR environment "
+            "variable. For example: {'MyLogitsProcessor': ['arg1', 'arg2']}."
+        )
+    )
     # doc: end-chat-completion-extra-params
 
     def to_beam_search_params(self,
@@ -618,15 +620,15 @@ class CompletionRequest(OpenAIBaseModel):
             "default: 0). Any priority other than 0 will raise an error "
             "if the served model does not use priority scheduling."))
 
-    custom_logits_processors: Optional[List[str]] = Field(
+    custom_logits_processors: Optional[Dict[str, List[Any]]] = Field(
         default=None,
         description=(
-            "If specified, will override the default logits processors "
-            "of the server for this specific request. If set, must be a list "
-            "of strings where each string is colon separated list of the "
-            "file path, the logits processor class or function name, and its "
-            "arguments.  For example, 'path/to/file.py:MyLogitsProcessor:arg1,arg2'"))
-
+            "If specified, will add new logits processors "
+            "to the server for this specific request. If set, must be a dictionary "
+            "where each key is the logits processor class name and its value is a list "
+            "of arguments to pass to the class constructor. The classes are expected to "
+            "be in the directory specified by the LOGITS_PROCESSORS_DIR environment "
+            "variable. For example: {'MyLogitsProcessor': ['arg1', 'arg2']}."))
     # doc: end-completion-extra-params
 
     def to_beam_search_params(self,
