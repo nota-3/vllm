@@ -5,17 +5,23 @@ from disk. This is useful for users who want to use custom logit processors that
 
 import torch
 from typing import List
-from vllm.model_executor.layers.logits_processor import LogitsProcessor
 
 
-class DenyWordsLogitsProcessor(LogitsProcessor):
+class DenyWordsLogitsProcessor:
     """
     There are gotchas around rejecting words that make this unsuitable for general use.
     Subword tokens are also rejected by this approach, which can lead to unexpected behavior.
     """
+
     def __init__(self, arguments: str, tokenizer):
         arguments = list(arguments.split(","))
-        self.denylist = [token_id for token_list in list(map(lambda t: tokenizer.encode(t,add_special_tokens=False), arguments)) for token_id in token_list]
+        self.denylist = [
+            token_id
+            for token_list in list(
+                map(lambda t: tokenizer.encode(t, add_special_tokens=False), arguments)
+            )
+            for token_id in token_list
+        ]
         self.mask = None
 
     def __call__(self, token_ids: List[int], logits: torch.Tensor) -> torch.Tensor:
