@@ -3,6 +3,10 @@ from typing import Dict, FrozenSet, Iterable, List, Optional, Union
 
 import torch
 
+import inspect
+import importlib.util
+from vllm.transformers_utils.tokenizer import AnyTokenizer
+
 from vllm.sampling_params import LogitsProcessor
 from vllm.transformers_utils.tokenizer import AnyTokenizer
 
@@ -54,6 +58,8 @@ def get_logits_processors(
     logit_bias: Optional[Union[Dict[int, float], Dict[str, float]]],
     allowed_token_ids: Optional[List[int]],
     tokenizer: AnyTokenizer,
+    prompt: Optional[str],
+    custom_logits_processors: Optional[List[str]] = None,
 ) -> List[LogitsProcessor]:
     logits_processors: List[LogitsProcessor] = []
     if logit_bias:
@@ -83,4 +89,42 @@ def get_logits_processors(
             _get_allowed_token_ids_logits_processor(
                 frozenset(allowed_token_ids), len(tokenizer)))
 
+    if custom_logits_processors:
+        for custom_logits_processor in custom_logits_processors:
+            file_path, name, arguments = custom_logits_processor.split(":")
+            logits_processors.append(
+                _load_logits_processor_from_disk(
+                    tokenizer, prompt, file_path, name, arguments
+                )
+            )
+
+
     return logits_processors
+
+
+def _load_logits_processor_from_disk(
+    tokenizer, prompt, file_path, name, arguments=None
+):
+    """Given a file path, load the logits processor from disk."""
+
+    spec = importlib.util.spec_from_file_location("name", file_path)
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    logits_processor = getattr(module, name)
+    kwargs = {}
+    if "tokenizer" in inspect.signature(logits_processor).parameters:
+        kwargs["tokenizer"] = tokenizer
+
+    if "prompt" in inspect.signature(logits_processor).parameters:
+        kwargs["prompt"] = prompt
+
+    if "arguments" in inspect.signature(logits_processor).parameters:
+        kwargs["arguments"] = arguments
+
+    # if it's a class, initialize it with kwargs,
+    # otherwise, return a partial function with kwargs
+    if inspect.isclass(logits_processor):
+        return logits_processor(**kwargs)
+    else:
+        return partial(logits_processor, **kwargs)

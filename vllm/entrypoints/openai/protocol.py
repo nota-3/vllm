@@ -294,6 +294,15 @@ class ChatCompletionRequest(OpenAIBaseModel):
             "not set it, a random_uuid will be generated. This id is used "
             "through out the inference process and return in response."))
 
+    custom_logits_processors: Optional[List[str]] = Field(
+        default=None,
+        description=(
+            "If specified, will override the default logits processors "
+            "of the server for this specific request. If set, must be a list "
+            "of strings where each string is colon separated list of the "
+            "file path, the logits processor class or function name, and its "
+            "arguments.  For example, 'path/to/file.py:MyLogitsProcessor:arg1,arg2'"))
+
     # doc: end-chat-completion-extra-params
 
     def to_beam_search_params(self,
@@ -314,7 +323,7 @@ class ChatCompletionRequest(OpenAIBaseModel):
             length_penalty=self.length_penalty,
             include_stop_str_in_output=self.include_stop_str_in_output)
 
-    def to_sampling_params(self, default_max_tokens: int) -> SamplingParams:
+    def to_sampling_params(self, default_max_tokens: int, prompt: str) -> SamplingParams:
         # TODO(#9845): remove max_tokens when field is removed from OpenAI API
         max_tokens = self.max_completion_tokens or self.max_tokens
         if max_tokens is None:
@@ -344,6 +353,14 @@ class ChatCompletionRequest(OpenAIBaseModel):
             backend=self.guided_decoding_backend,
             whitespace_pattern=self.guided_whitespace_pattern)
 
+        logits_processors = get_logits_processors(
+            logit_bias=self.logit_bias,
+            allowed_token_ids=None,
+            tokenizer=tokenizer,
+            prompt=prompt,
+            custom_logits_processors=self.custom_logits_processors,
+        )
+
         return SamplingParams.from_optional(
             n=self.n,
             best_of=self.best_of,
@@ -369,6 +386,7 @@ class ChatCompletionRequest(OpenAIBaseModel):
             output_kind=RequestOutputKind.DELTA if self.stream \
                 else RequestOutputKind.FINAL_ONLY,
             guided_decoding=guided_decoding,
+            logits_processors=logits_processors,
             logit_bias=self.logit_bias)
 
     def _get_guided_json_from_tool(
@@ -600,6 +618,15 @@ class CompletionRequest(OpenAIBaseModel):
             "default: 0). Any priority other than 0 will raise an error "
             "if the served model does not use priority scheduling."))
 
+    custom_logits_processors: Optional[List[str]] = Field(
+        default=None,
+        description=(
+            "If specified, will override the default logits processors "
+            "of the server for this specific request. If set, must be a list "
+            "of strings where each string is colon separated list of the "
+            "file path, the logits processor class or function name, and its "
+            "arguments.  For example, 'path/to/file.py:MyLogitsProcessor:arg1,arg2'"))
+
     # doc: end-completion-extra-params
 
     def to_beam_search_params(self,
@@ -644,6 +671,14 @@ class CompletionRequest(OpenAIBaseModel):
             backend=self.guided_decoding_backend,
             whitespace_pattern=self.guided_whitespace_pattern)
 
+        logits_processors = get_logits_processors(
+            logit_bias=self.logit_bias,
+            allowed_token_ids=self.allowed_token_ids,
+            tokenizer=tokenizer,
+            prompt=self.prompt,
+            custom_logits_processors=self.custom_logits_processors
+        )
+
         return SamplingParams.from_optional(
             n=self.n,
             best_of=self.best_of,
@@ -670,6 +705,7 @@ class CompletionRequest(OpenAIBaseModel):
                 else RequestOutputKind.FINAL_ONLY,
             guided_decoding=guided_decoding,
             logit_bias=self.logit_bias,
+            logits_processors=logits_processors,
             allowed_token_ids=self.allowed_token_ids)
 
     @model_validator(mode="before")
