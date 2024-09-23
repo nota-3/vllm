@@ -8,7 +8,8 @@ import sys
 import torch
 
 import inspect
-import importlib.utilfrom vllm.sampling_params import LogitsProcessor
+import importlib.util
+from vllm.sampling_params import LogitsProcessor
 from vllm.transformers_utils.tokenizer import AnyTokenizer
 
 
