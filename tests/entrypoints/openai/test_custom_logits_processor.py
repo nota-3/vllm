@@ -2,6 +2,7 @@
 import torch
 from transformers import AutoTokenizer
 import os
+import sys
 from vllm.entrypoints.openai.logits_processors import get_logits_processors
 
 
@@ -9,7 +10,7 @@ def test_custom_logits_processor_loading():
     """Test loading of custom logits processor from disk."""
     tokenizer = AutoTokenizer.from_pretrained("HuggingFaceH4/zephyr-7b-beta")
 
-    os.environ["LOGITS_PROCESSORS_DIR"] = "tests/entrypoint/openai"
+    os.environ["LOGITS_PROCESSORS_DIR"] = "tests/entrypoints/openai"
     custom_processor_name = "DenyWordsLogitsProcessor"
     custom_processor_args = "word1,word2,word3,a"
 
@@ -60,7 +61,5 @@ def test_custom_logits_processor_loading():
         logits = processor(token_ids, logits)
 
     assert logits.shape == original_logits.shape
-    assert (
-        logits[range(len(token_ids)), token_ids].eq(float("-inf")).any().tolist()
-        == False
-    )
+    assert (logits[range(len(token_ids)),
+                   token_ids].eq(float("-inf")).any().tolist() == False)

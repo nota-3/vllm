@@ -3,14 +3,13 @@ from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Union
 
 import importlib
 import os
-import sys
 
 import torch
 
 import inspect
 import importlib.util
 from vllm.sampling_params import LogitsProcessor
-from vllm.transformers_utils.tokenizer import AnyTokenizer
+from vllm.transformers_utils.tokenizer import AnyTokenizer, get_tokenizer
 
 
 class AllowedTokenIdsLogitsProcessor:
@@ -59,11 +58,13 @@ def logit_bias_logits_processor(
 def get_logits_processors(
     logit_bias: Optional[Union[Dict[int, float], Dict[str, float]]],
     allowed_token_ids: Optional[List[int]],
-    tokenizer: AnyTokenizer,
+    tokenizer: Union[AnyTokenizer, str],
     prompt: Optional[str],
-    custom_logits_processors: Optional[Dict[str,List[Any]]] = None,
+    custom_logits_processors: Optional[Dict[str, List[Any]]] = None,
 ) -> List[LogitsProcessor]:
     logits_processors: List[LogitsProcessor] = []
+    if isinstance(tokenizer, str):
+        tokenizer = get_tokenizer(tokenizer)
     if logit_bias:
         try:
             # Convert token_id to integer
@@ -92,12 +93,12 @@ def get_logits_processors(
                 frozenset(allowed_token_ids), len(tokenizer)))
 
     if custom_logits_processors:
-        for custom_logits_processor, arguments in custom_logits_processors.items():
+        for custom_logits_processor, arguments in custom_logits_processors.items(
+        ):
             logits_processors.append(
-                _load_logits_processor_from_disk(
-                    tokenizer, prompt, custom_logits_processor, arguments
-                )
-            )
+                _load_logits_processor_from_disk(tokenizer, prompt,
+                                                 custom_logits_processor,
+                                                 arguments))
 
     return logits_processors
 
@@ -123,11 +124,43 @@ def _logits_processor_wrapper(name, tokenizer_path, prompt, *args, **kwargs):
     """
 
     LOGITS_PROCESSORS_DIR = os.environ.get("LOGITS_PROCESSORS_DIR")
-    sys.path.insert(0, LOGITS_PROCESSORS_DIR)
 
-    module = importlib.import_module(LOGITS_PROCESSORS_DIR.rsplit("/", 1)[-1])
-    logits_processor = getattr(module, name)
-    kwargs.update({"arguments": args[0]})  # pass the arguments as a keyword arg
+    if not LOGITS_PROCESSORS_DIR:
+        raise ValueError(
+            "LOGITS_PROCESSORS_DIR environment variable is not set"
+            " and yet this function is being called. Please set the LOGITS_PROCESSORS_DIR"
+            " environment variable to the directory containing the custom logits processors."
+        )
+    if not os.path.exists(LOGITS_PROCESSORS_DIR):
+        raise ValueError(
+            "LOGITS_PROCESSORS_DIR does not exist"
+            " and yet this function is being called. Please set the LOGITS_PROCESSORS_DIR"
+            " environment variable to the directory containing the custom logits processors."
+        )
+
+    def get_lp_class(directory, class_or_function_name):
+        for filename in os.listdir(directory):
+            if filename.endswith(".py"):
+                try:
+                    file_path = os.path.join(directory, filename)
+                    spec = importlib.util.spec_from_file_location(
+                        filename[:-3], file_path)
+                    module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(module)
+                    if hasattr(module, class_or_function_name):
+                        return getattr(module, class_or_function_name)
+                except:
+                    pass
+        return None
+
+    logits_processor = get_lp_class(LOGITS_PROCESSORS_DIR, name)
+    if logits_processor is None:
+        raise ValueError(
+            f"Could not find the logits processor class {name} in the directory {LOGITS_PROCESSORS_DIR}."
+        )
+
+    # pass the arguments as a keyword arg
+    kwargs.update({"arguments": args[0]})
 
     if "tokenizer_path" in inspect.signature(logits_processor).parameters:
         kwargs["tokenizer_path"] = tokenizer_path
@@ -140,7 +173,8 @@ def _logits_processor_wrapper(name, tokenizer_path, prompt, *args, **kwargs):
     return processor
 
 
-def _process_logits(token_ids, logits, name, tokenizer_path, prompt, arguments):
+def _process_logits(token_ids, logits, name, tokenizer_path, prompt,
+                    arguments):
     """This function is used to process logits using a custom logits processor
     loaded from disk.
 
@@ -155,7 +189,8 @@ def _process_logits(token_ids, logits, name, tokenizer_path, prompt, arguments):
     Returns:
         torch.Tensor: The processed logits.
     """
-    processor = _logits_processor_wrapper(name, tokenizer_path, prompt, arguments)
+    processor = _logits_processor_wrapper(name, tokenizer_path, prompt,
+                                          arguments)
     return processor(token_ids, logits)
 
 
