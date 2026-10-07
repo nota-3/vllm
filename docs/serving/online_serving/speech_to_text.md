@@ -122,6 +122,54 @@ speaker segments. Currently, this is supported by
 }
 ```
 
+### Word-level Timestamps
+
+Whisper models can return a start and end time for every word. Start the server
+with `--enable-word-timestamps`, then ask for them per request with
+`response_format=verbose_json` and `timestamp_granularities[]=word`:
+
+```bash
+curl http://localhost:8000/v1/audio/transcriptions \
+  -F file=@audio.wav -F model=openai/whisper-large-v3-turbo \
+  -F response_format=verbose_json -F 'timestamp_granularities[]=word'
+```
+
+Each word carries `start`, `end` and `probability`. `probability` is the mean
+probability of the word's tokens as sampled during decoding, a vLLM extension
+that is not part of the OpenAI schema. faster-whisper averages per word the
+same way but recomputes token probabilities in a separate alignment pass, so
+the values are not identical: mid-sentence words agree closely, while first
+words and words ending in punctuation score lower here. Producing it needs the
+sampled token's logprob, so word requests always run with `logprobs=1`.
+
+Onsets are recovered from the decoder's cross-attention with a dynamic time
+warping pass, the same method used by OpenAI's Whisper and WhisperX. Requests
+that do not ask for word timestamps are unaffected: nothing is captured and no
+alignment runs for them.
+
+Asking only for `word` skips segment cutting and the timestamp-token prompt,
+which is both faster and closer to what `json` would have transcribed. Ask for
+`timestamp_granularities[]=segment` as well if you need both.
+
+!!! warning
+    Word timings are an approximation, not a measurement. Cross-attention DTW
+    infers onsets from where the decoder was attending, so accuracy degrades on
+    noisy or low-bandwidth audio, around pauses and non-speech that a VAD would
+    not resolve cleanly, and on short function words, which can be pulled toward
+    their neighbours. Typical error is on the order of a hundred milliseconds.
+
+    This is well suited to subtitles, search within audio, highlighting and rough
+    alignment for review. It is not a substitute for a dedicated forced-alignment
+    model where the timings are themselves the product — dubbing, tight lip-sync,
+    alignment for training data, or timestamps that carry legal weight.
+
+!!! note
+    Cross-attention capture needs a buffer per in-flight request. The pool is
+    sized from the memory left after the weights are loaded and targets one slot
+    per `--max-num-seqs`; when it cannot reach that, the server warns at startup
+    and requests past the pool return `words: null`. Raise
+    `--gpu-memory-utilization` or lower `--max-num-seqs` to widen coverage.
+
 ### Extra Parameters
 
 The following [sampling parameters](../../api/README.md#inference-parameters) are supported.

@@ -3122,6 +3122,8 @@ class VllmConfig:
             and self.scheduler_config.async_scheduling
         ):
             unsupported.append("pipeline parallelism with async scheduling")
+        if self.model_config is not None and self.model_config.enable_word_timestamps:
+            unsupported.append("word-level timestamps")
 
         # DSpark is implemented only by the V2 GPU model runner.
         if self.speculative_config:
